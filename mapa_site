@@ -1,0 +1,312 @@
+import folium
+import geopandas as gpd
+import os
+
+# Carregar os arquivos SHP
+shp = r'C:/python/_shp/MUNICIPIO.shp'
+shp_mun = gpd.read_file(shp)
+
+rio_par = r'C:/python/_shp/Rio_Paraopeba_del-02.shp'
+paraopeba = gpd.read_file(rio_par)
+
+pts = r'C:/python/_shp/pts_interesse.shp'
+pts_interesse = gpd.read_file(pts)
+
+mg_ferrovias = r'C:/python/_shp/mg_ferrovias.shp'
+ferrovia = gpd.read_file(mg_ferrovias)
+
+mg_rodovias = r'C:/python/_shp/rodovias.shp'
+rodovias = gpd.read_file(mg_rodovias)
+
+# Verificar dados carregados
+print("Dados carregados:")
+print(shp_mun.head())
+print(paraopeba.head())
+print(pts_interesse.head())
+
+# Corrigir sistema de projeção para WGS84
+if shp_mun.crs != "EPSG:4326":
+    shp_mun = shp_mun.to_crs(epsg=4326)
+
+if paraopeba.crs != "EPSG:4326":
+    paraopeba = paraopeba.to_crs(epsg=4326)
+
+if pts_interesse.crs != "EPSG:4326":
+    pts_interesse = pts_interesse.to_crs(epsg=4326)
+
+if ferrovia.crs != "EPSG:4326":
+    ferrovia = ferrovia.to_crs(epsg=4326)
+
+if rodovias.crs != "EPSG:4326":
+    rodovias = rodovias.to_crs(epsg=4326)
+
+# Criar mapa base
+mapa = folium.Map(
+    location=[-20.108166, -44.217718],
+    name='Open Street Map',
+    control_scale=True,
+    zoom_start=11,  # Zoom inicial
+    zoom_control=True,
+    max_zoom=13,  # Zoom máximo
+    min_zoom=10   # Zoom minimo
+)
+
+# Popups personalizados
+def custom_popup(row):
+    nome = row['NOME']
+    regiao = row['Região']
+    #populacao = row['PopAtingid']
+    comunidade = row['ComuAsses']
+    site_pref = row['site']
+    #pcts = row['numPCT']
+    html = f"""
+    <h4 style="margin-bottom: 10px;">Território Assessorado</h4>
+    <p><strong>Município:</strong> {nome}</p>
+    <p><strong>Região:</strong> {regiao}</p>
+    
+    <p><strong>Comunidades Assessoradas:</strong> {comunidade}</p>
+    
+    <p><a href="{site_pref}" target="_blank">Acesse o site da Prefeitura</a></p>
+    """
+    return html
+
+# Dicionário de cores para cada município
+cores_mun = {
+    "BRUMADINHO": "#bea73d",
+    "BETIM": "#d83c3c",
+    "MATEUS LEME": "#3dbea5",
+    "SÃO JOAQUIM DE BICAS": "#9d85b9",
+    "MÁRIO CAMPOS": "#684dcb",
+    "JUATUBA": "#639963",
+    "IGARAPÉ": "#e9f46f",
+}
+
+# Adicionar o HTML do popup como uma nova coluna no GeoDataFrame
+shp_mun['Popup'] = shp_mun.apply(custom_popup, axis=1)
+
+# Função para definir o estilo dinamicamente
+def estilo_mun(feature):
+    nome_mun = feature['properties']['NOME']  # Nome do município
+    cor = cores_mun.get(nome_mun, "#CCCCCC")  # Cor do dicionário ou padrão
+    return {
+        'fillColor': cor,
+        'color': 'black',   # Cor da borda
+        'weight': 2,        # Espessura da borda
+        'fillOpacity': 0.3  # Transparência do preenchimento
+    }
+
+# Adicionar o arquivo SHP dos municípios no mapa com popup e tooltip
+folium.GeoJson(
+    shp_mun,
+    name='Municípios Atingidos',
+    style_function=estilo_mun,  # Cores definidas
+    tooltip=folium.GeoJsonTooltip(fields=['NOME'], aliases=['Município:']),
+    popup=folium.GeoJsonPopup(fields=['Popup'], labels=False),
+  
+).add_to(mapa)
+
+# Adicionar o arquivo SHP do Rio Paraopeba
+folium.GeoJson(
+    paraopeba,
+    name='Rio Paraopeba',
+    style_function=lambda feature: {
+        'fillColor': '#417FFA',  
+        'color': '#417FFA',           
+        'weight': 1.5,               
+        'fillOpacity': 0.2 
+    }
+).add_to(mapa)
+
+# Adicionar a camada da linha do trem
+# Grupo para as ferrovias
+ferrovia_group = folium.FeatureGroup(name='Ferrovias', show=True)
+
+# 1 Linha preta
+folium.GeoJson(
+    ferrovia,
+    style_function=lambda feature: {
+        'color': 'black',
+        'weight': 3,
+        'opacity': 1
+    }
+).add_to(ferrovia_group)
+
+# 2 Linha branca
+folium.GeoJson(
+    ferrovia,
+    style_function=lambda feature: {
+        'color': 'white',
+        'weight': 2,
+        'opacity': 1
+    },
+    tooltip=None  # Remove tooltip duplicado
+).add_to(ferrovia_group)
+
+# 3 Linha preta tracejada
+folium.GeoJson(
+    ferrovia,
+    style_function=lambda feature: {
+        'color': 'black',
+        'weight': 1,
+        'dashArray': '4, 10',  # Padrão de traços e espaços
+        'lineCap': 'square',   # Borda quadrada
+        'opacity': 1
+    },
+    tooltip=folium.GeoJsonTooltip(fields=['sigla_coin'], aliases=['Ferrovia:'])
+).add_to(ferrovia_group)
+
+ferrovia_group.add_to(mapa)
+
+# Rodovias
+folium.GeoJson(
+    rodovias,
+    name='Rodovias',
+    style_function=lambda feature: {
+        'color': "#CCB188",
+        'weight': 2,
+        'opacity': 1,
+    },
+    tooltip=folium.GeoJsonTooltip(fields=['codtrechor'], aliases=["Rodovia:"])
+    
+).add_to(mapa)
+
+# Pontos de interesse
+for _, row in pts_interesse.iterrows():
+    coords = row['geometry'].coords[0]
+    nome = row.get('nome', 'Local desconhecido')
+    descricao = row.get('tipo', 'Sem descrição')
+    icone_nome = row.get('icone', 'default.png')
+    icone_caminho = f'C:/python/_svg/{icone_nome}'
+
+    if not os.path.exists(icone_caminho):
+        icone_caminho = f'C:/python/_svg/default.png'
+
+    custom_icon = folium.CustomIcon(
+        icon_image=icone_caminho,
+        icon_size=(35, 35)
+    )
+
+    folium.Marker(
+        location=[coords[1], coords[0]],
+        popup=folium.Popup(f"<b>{nome}</b><br>{descricao}", max_width=300),
+        icon=custom_icon
+    ).add_to(mapa)
+
+# Layer não utilizada
+'''folium.TileLayer('cartodb positron',
+    name= 'Cartodb Positron',
+    max_zoom=13,
+    min_zoom=10,
+    zoom_control=True
+    ).add_to(mapa)'''
+
+# Layer de satélite Esri como alternativa
+folium.TileLayer(
+    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', 
+    name='Esri Satellite', 
+    attr='Esri',
+    max_zoom=13,
+    min_zoom=10,
+    zoom_control=True
+    ).add_to(mapa)
+
+folium.TileLayer( #mapbox://styles/ricardoaedas/cm6pbu16i00u701qq5n9j8i5f
+    tiles='https://api.mapbox.com/styles/v1/ricardoaedas/cmbryvduj00c601s61aw56mhr/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoicmljYXJkb2FlZGFzIiwiYSI6ImNsdnY3Z2o1bzFxOXcyanFpdHVwYXdqeDMifQ.kQirEfz2pKwIMOkn6u5H3g',
+    attr='Mapbox',
+    name='Map Box Custon',  # Nome personalizado para a camada
+    max_zoom=13,
+    min_zoom=10
+).add_to(mapa)
+#mapbox://styles/ricardoaedas/cm6krc9vc002601qs58tr7v52  cm6pbu16i00u701qq5n9j8i5f 
+
+# Controle de camadas
+folium.LayerControl(
+    
+).add_to(mapa)
+
+# Coordenadas centrais das regiões
+regiao1_coords = [-20.189932, -44.123210]  # Exemplo: Coordenadas da Região 1
+regiao2_coords = [-20.003655, -44.306779]  # Exemplo: Coordenadas da Região 2
+
+# Código JavaScript para os botões e ajuste de zoom
+js_code = f"""
+<script>
+    document.addEventListener("DOMContentLoaded", function() {{
+        var map = Object.values(window).find(val => val instanceof L.Map);
+
+        // Detectar dispositivo
+        var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        var zoomInicial = isMobile ? 11 : 12;  // Zoom diferente para mobile e desktop
+
+        // Ajustar o zoom inicial
+        map.setView([{-20.108166 }, {-44.217718}], 11);
+
+        // Funções para redirecionar o mapa com zoom ajustado
+        window.goToRegiao1 = function() {{
+            map.setView([{regiao1_coords[0]}, {regiao1_coords[1]}], zoomInicial);
+        }};
+        window.goToRegiao2 = function() {{
+            map.setView([{regiao2_coords[0]}, {regiao2_coords[1]}], zoomInicial);
+        }};
+    }});
+</script>
+"""
+
+# HTML botões
+html_buttons = """
+<div style="position: fixed; top: 10px; left: 50px; z-index: 1000;">
+    <button onclick="goToRegiao1()" style="padding: 5px 10px; margin-right: 5px; background-color: #4CAF50; color: white; border: none; border-radius: 3px;">Região 1</button>
+    <button onclick="goToRegiao2()" style="padding: 5px 10px; background-color: #2196F3; color: white; border: none; border-radius: 3px;">Região 2</button>
+</div>
+"""
+
+# JavaScript e HTML ao mapa
+mapa.get_root().html.add_child(folium.Element(js_code + html_buttons))
+
+# Referência no rodapé
+footer_html = """
+<div style="position: fixed; bottom: 20px; right: 10px; z-index: 1000; background-color: white; padding: 5px; border-radius: 5px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2);">
+    <a href="#" onclick="showCredits()" style="color: #2196F3; text-decoration: none;">Fonte</a>
+</div>
+"""
+
+# HTML do rodapé ao mapa
+mapa.get_root().html.add_child(folium.Element(footer_html))
+
+# HTML e JavaScript para a página de créditos
+credits_html = """
+<div id="creditsModal" style="display: none; position: fixed; top: 40%; left: 50%; transform: translate(-50%, -10%); background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); z-index: 1001; width: 80%; max-width: 600px;">
+    <h2 style="margin-top: 0;">Referências</h2>
+
+    
+    <ul>
+        <li>Dados geográficos: Instituto Brasileiro de Geografia e Estatística (IBGE)</li>
+        <li>Informações: Associação Estadual de Defesa Ambiental e Social (Aedas)</li>
+        <li>Mapas base: OpenStreetMap, Esri, Mapbox</li>
+    </ul>
+    <button onclick="hideCredits()" style="padding: 5px 10px; background-color: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer;">Fechar</button>
+</div>
+"""
+
+# JavaScript para mostrar e esconder a página de créditos
+credits_js = """
+<script>
+    function showCredits() {
+        document.getElementById('creditsModal').style.display = 'block';
+    }
+    function hideCredits() {
+        document.getElementById('creditsModal').style.display = 'none';
+    }
+</script>
+"""
+
+# Adicionar o HTML e JavaScript da página de créditos ao mapa
+mapa.get_root().html.add_child(folium.Element(credits_html + credits_js))
+
+# Salvar o mapa
+try:
+    mapa.save(r"C:\python\produto\mapa_final_cor_button_mobile_FINAL.html")
+    print("Mapa salvo com sucesso!")
+except Exception as e:
+    print(f"Erro ao salvar o mapa: {e}")
+    
